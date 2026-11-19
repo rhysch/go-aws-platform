@@ -1,0 +1,11 @@
+.env
+*.tfstate
+*.tfstate.*
+*.tfplan
+*.tfvars
+!*.tfvars.example
+**/.terraform/*
+**/backend.hcl
+bin/
+dist/
+coverage.out

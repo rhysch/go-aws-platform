@@ -1,0 +1,3 @@
+aws_region          = "ap-south-1"
+state_bucket_name   = "REPLACE-unique-private-state-bucket"
+create_github_oidc  = true

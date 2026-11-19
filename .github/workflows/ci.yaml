@@ -1,0 +1,66 @@
+name: CI
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  go:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.x'
+          cache: false
+      - run: test -z "$(gofmt -l cmd internal)"
+      - run: go vet ./...
+      - run: go test -race -cover ./...
+      - name: Build application image
+        run: docker build --build-arg VERSION="$GITHUB_SHA" -t platform:ci .
+      - name: Scan application image
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: platform:ci
+          format: table
+          exit-code: '1'
+          ignore-unfixed: true
+          severity: HIGH,CRITICAL
+      - name: Verify local application and reverse proxy
+        run: |
+          docker compose up -d --build --wait
+          go run ./cmd/smoke -url http://localhost:8088 -expect-version local
+      - name: Container diagnostics
+        if: failure()
+        run: docker compose logs --tail=100
+      - name: Stop local containers
+        if: always()
+        run: docker compose down
+  terraform:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        directory: [infra/bootstrap, infra/app]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: '1.15.8'
+      - run: terraform fmt -check -recursive infra
+      - run: terraform init -backend=false -input=false -lockfile=readonly
+        working-directory: ${{ matrix.directory }}
+      - run: terraform validate
+        working-directory: ${{ matrix.directory }}
+      - name: Mock AWS plan and security assertions
+        if: matrix.directory == 'infra/app'
+        run: terraform test
+        working-directory: infra/app
+  shell:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check scripts
+        run: |
+          bash -n scripts/deploy.sh scripts/health-metric.sh scripts/ssm-deploy.sh
+          shellcheck -e SC1091 scripts/*.sh

@@ -1,0 +1,45 @@
+services:
+  api:
+    image: ${IMAGE:?IMAGE is required}
+    ports:
+      - "127.0.0.1:8080:8080"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    restart: unless-stopped
+    cpus: 0.5
+    mem_limit: 128m
+    stop_grace_period: 20s
+    logging:
+      driver: awslogs
+      options:
+        awslogs-region: ${AWS_REGION}
+        awslogs-group: ${APP_LOG_GROUP}
+        awslogs-stream: api-${RELEASE_SHA}
+  caddy:
+    image: caddy:2.10.2-alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+    cpus: 0.5
+    mem_limit: 192m
+    logging:
+      driver: awslogs
+      options:
+        awslogs-region: ${AWS_REGION}
+        awslogs-group: ${CADDY_LOG_GROUP}
+        awslogs-stream: caddy-${RELEASE_SHA}
+volumes:
+  caddy_data:
+  caddy_config:

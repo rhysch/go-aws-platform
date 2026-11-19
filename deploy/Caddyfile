@@ -1,0 +1,11 @@
+{
+    email {$ACME_EMAIL}
+}
+{$DOMAIN} {
+    encode gzip
+    log {
+        output stdout
+        format json
+    }
+    reverse_proxy api:8080
+}

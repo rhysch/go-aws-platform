@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+export DEBIAN_FRONTEND=noninteractive
+apt-get update
+apt-get install -y ca-certificates curl jq unzip
+install -m 0755 -d /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+chmod a+r /etc/apt/keyrings/docker.asc
+cat > /etc/apt/sources.list.d/docker.sources <<EOF
+Types: deb
+URIs: https://download.docker.com/linux/ubuntu
+Suites: noble
+Components: stable
+Architectures: amd64
+Signed-By: /etc/apt/keyrings/docker.asc
+EOF
+apt-get update
+apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+systemctl enable --now docker
+curl -fsSL https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip -o /tmp/awscliv2.zip
+unzip -q /tmp/awscliv2.zip -d /tmp/awscli-installer
+/tmp/awscli-installer/aws/install --update
+# Official Ubuntu AWS images normally include the SSM snap; ensure it is installed.
+if ! snap list amazon-ssm-agent >/dev/null 2>&1; then snap install amazon-ssm-agent --classic; fi
+snap start amazon-ssm-agent
+install -d -m 0700 /etc/go-aws-platform
+install -d -m 0755 /opt/go-aws-platform/releases
+cat > /etc/go-aws-platform/host.env <<'EOF'
+AWS_REGION=${aws_region}
+PROJECT=${project}
+DOMAIN=${domain}
+ACME_EMAIL=${acme_email}
+IMAGE_REPOSITORY=${image_repo}
+APP_LOG_GROUP=${app_log_group}
+CADDY_LOG_GROUP=${caddy_log_group}
+EOF
+chmod 0600 /etc/go-aws-platform/host.env
+cat > /usr/local/bin/go-aws-platform-health <<'HEALTH'
+${health_script}
+HEALTH
+chmod 0755 /usr/local/bin/go-aws-platform-health
+cat > /etc/systemd/system/go-aws-platform-health.service <<'EOF'
+[Unit]
+Description=Publish local Go application health to CloudWatch
+After=network-online.target docker.service
+Wants=network-online.target
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/go-aws-platform-health
+TimeoutStartSec=30
+EOF
+cat > /etc/systemd/system/go-aws-platform-health.timer <<'EOF'
+[Unit]
+Description=Check Go application health every minute
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=60s
+AccuracySec=1s
+[Install]
+WantedBy=timers.target
+EOF
+systemctl daemon-reload
+systemctl enable --now go-aws-platform-health.timer
+touch /opt/go-aws-platform/bootstrap-complete

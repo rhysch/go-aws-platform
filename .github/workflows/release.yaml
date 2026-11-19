@@ -1,11 +1,5 @@
 name: Release
 on:
-  push:
-    branches: [main]
-    paths-ignore:
-      - '**/*.md'
-      - 'docs/**'
-      - '.gitignore'
   workflow_dispatch:
     inputs:
       release_sha:
@@ -20,7 +14,7 @@ concurrency:
 jobs:
   build:
     if: >-
-      github.ref == 'refs/heads/main' && vars.IMAGE_REPOSITORY != '' &&
+      github.ref == 'refs/heads/main' && vars.ENABLE_AWS_DEPLOYMENT == 'true' && vars.IMAGE_REPOSITORY != '' &&
       vars.AWS_DEPLOY_ROLE_ARN != '' && vars.AWS_REGION != '' &&
       (github.event_name == 'push' || inputs.release_sha == '')
     runs-on: ubuntu-latest
@@ -97,7 +91,7 @@ jobs:
   deploy:
     needs: build
     if: >-
-      always() && github.ref == 'refs/heads/main' &&
+      always() && github.ref == 'refs/heads/main' && vars.ENABLE_AWS_DEPLOYMENT == 'true' &&
       vars.AWS_DEPLOY_ROLE_ARN != '' && vars.INSTANCE_ID != '' &&
       vars.RELEASE_BUCKET != '' && vars.AWS_REGION != '' &&
       vars.SSM_LOG_GROUP != '' && vars.APP_URL != '' &&

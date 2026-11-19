@@ -3,7 +3,7 @@
 [![CI](https://github.com/rhysch/go-aws-platform/actions/workflows/ci.yaml/badge.svg)](https://github.com/rhysch/go-aws-platform/actions/workflows/ci.yaml)
 [![Release](https://github.com/rhysch/go-aws-platform/actions/workflows/release.yaml/badge.svg)](https://github.com/rhysch/go-aws-platform/actions/workflows/release.yaml)
 
-**[Live HTTPS demo](https://go-platform.16-113-199-23.sslip.io)** · **[Deployment evidence](docs/evidence/2026-11-19-deployment.md)**
+**AWS hosting has been retired at the owner’s request to avoid ongoing charges.** The code, local Docker demo, tests and [historical deployment evidence](docs/evidence/2026-11-19-deployment.md) remain. The deployment workflow is disabled, manual-only, and requires an explicit paid-hosting opt-in.
 
 A personal DevOps portfolio project: a small Go HTTP service with reproducible AWS infrastructure, Docker delivery, Caddy HTTPS, deployment verification, and release recovery.
 
@@ -74,7 +74,7 @@ Unknown paths return 404. Other methods on known endpoints return 405 with `Allo
 ## Delivery design
 
 - PR CI: format check, Go tests with race detection, vet, image build/scan, local Compose smoke test, Terraform format/validation, shell checks.
-- Documentation-only pushes run CI but do not create an application release. Manual workflow dispatch remains available.
+- CI runs without provisioning AWS. Cloud release is disabled by default and manual-only; it additionally requires `ENABLE_AWS_DEPLOYMENT=true` and a separately provisioned, paid AWS environment.
 - Main release: independently reruns Go tests and image scanning, assumes an AWS role via OIDC, scans and publishes the image to private ECR under an immutable commit-SHA tag, packages deployment files, and deploys using SSM.
 - The server pulls the exact release image, validates Caddy configuration, waits for healthy containers, verifies the local release version and the public HTTPS version, then updates a `current` symlink.
 - A deployment failure attempts to restore the last successful release. On a first deployment there is no previous release. Rollback is best-effort, can itself fail, and must be verified.

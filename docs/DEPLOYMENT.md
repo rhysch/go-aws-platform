@@ -1,5 +1,7 @@
 # Deploy to AWS
 
+**Paid hosting is disabled for this repository. The previous demo was removed at the owner’s request.** Use the local Compose setup in START_HERE.md to learn without AWS charges. This guide describes an optional paid deployment, not a currently running service.
+
 Complete START_HERE.md first. Local tests do not prove an AWS deployment. These steps create billable resources.
 
 ## 1. Tools and identity
@@ -99,7 +101,7 @@ No AWS or registry Actions secrets are required. Build/deployment jobs skip when
 
 ## 6. Release
 
-Push an application/configuration change to main, or select Actions → Release → Run workflow → main. Leave `release_sha` blank for a new build. Documentation-only pushes skip automatic release; CI still runs.
+Only if you explicitly choose paid hosting again: provision the infrastructure, restore the required variables, set the additional repository variable `ENABLE_AWS_DEPLOYMENT=true`, re-enable the disabled Release workflow, then select Actions → Release → Run workflow → main. Pushes never trigger cloud release. Leave `release_sha` blank for a new build. Documentation-only pushes skip automatic release; CI still runs.
 
 The workflow tests Go, authenticates using OIDC, builds or reuses an immutable ECR image, scans that exact image, publishes it if new, uploads the deployment bundle, invokes SSM and verifies the public version using the Go smoke tool. Investigate vulnerability-scan failures rather than bypassing them. The scan gate covers selected high/critical vulnerabilities with an available fix; it does not establish that every possible security issue is absent.
 

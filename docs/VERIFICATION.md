@@ -1,5 +1,7 @@
 # Verification status
 
+**Current hosting status: retired at the owner’s request to avoid ongoing AWS costs.** The results below are historical deployment/test evidence, not a claim that the endpoint remains live. See [removal status](REMOVAL.md).
+
 Verified locally and in AWS on 2026-11-19. See [deployment evidence](evidence/2026-11-19-deployment.md).
 
 | Check | Result |

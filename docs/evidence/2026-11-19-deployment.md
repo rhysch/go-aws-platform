@@ -1,5 +1,7 @@
 # AWS deployment evidence — 2026-11-19
 
+**Historical evidence:** the owner subsequently requested removal of the AWS environment to avoid ongoing charges. The old endpoint is retired.
+
 ## Infrastructure
 
 - Region: Hyderabad (`ap-south-2`).

@@ -37,7 +37,7 @@ The compiler stays in the build stage; the runtime gets only the binary. The app
 Compose can wait for health during deployment and gate startup dependencies, but the Docker restart policy alone does not restart a process solely because its health check failed. Monitoring and an operator response still matter.
 
 **How does GitHub authenticate to AWS?**
-GitHub requests an OIDC token for the job. AWS checks audience and subject against the role trust policy and returns short-lived credentials. The subject is bound to the production environment, whose deployment branches I restrict to main.
+GitHub requests an OIDC token for the job. AWS checks audience and subject against the role trust policy and returns short-lived credentials. The subject is bound to the production environment, whose deployment branches I restrict to main. This repository uses immutable owner/repository IDs in its subject; I inspect the actual claims rather than assuming the legacy name-only format.
 
 **Are there no secrets at all?**
 There is no stored long-lived AWS key or registry password in GitHub. GitHub gets AWS credentials through OIDC; EC2 uses its instance role. Temporary AWS and ECR credentials exist at runtime, and Caddy stores private certificate material in its data volume.

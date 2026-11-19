@@ -1,29 +1,27 @@
 # Verification status
 
-Checked locally on 2026-11-19. No AWS resources were provisioned.
+Verified locally and in AWS on 2026-11-19. See [deployment evidence](evidence/2026-11-19-deployment.md).
 
 | Check | Result |
 |---|---|
-| Go formatting and `go vet ./...` | Passed |
-| `go test -race -cover ./...` | Passed; handler package 92.9% statement coverage, smoke package 47.6%; server entry point not covered |
-| Docker multi-stage application build | Passed |
-| Local Docker Compose startup | Passed; application healthy and Caddy running |
-| Go smoke test through Caddy at port 8088 | Passed; health, readiness, exact `local` version |
-| JSON application and Caddy access logs | Observed |
-| Local and AWS Compose configuration parsing | Passed |
-| Terraform formatting | Passed |
-| Bootstrap and application Terraform validation | Passed with AWS provider 6.73.0 |
-| Mocked Terraform plan / security assertions | Passed; no real AWS API calls |
-| Release bundle archive creation and contents | Checked |
-| Shell syntax and workflow YAML parsing | Passed |
+| Go tests, race detection, vet and formatting | Passed locally and in GitHub Actions |
+| Application image vulnerability gate | Passed in CI and the AWS release |
+| Local Go/Caddy Compose smoke verification | Passed |
+| Terraform validation and mocked security plan | Passed |
+| AWS bootstrap and application infrastructure | Applied in Hyderabad; 6 bootstrap and 35 application resources |
+| GitHub production environment | Restricted to main |
+| OIDC and private ECR publishing | Verified; immutable repository subject and immutable image tags |
+| SSM application deployment | Passed |
+| Caddy public HTTPS and exact release version | Verified by workflow and independent Go smoke test |
+| Runtime user, read-only filesystem and health | Verified: 10001:10001, read-only, healthy |
+| Temporary ECR credential cleanup | Verified |
+| Application, Caddy and SSM CloudWatch logs | Observed |
+| Controlled application outage | HTTP 502 observed; real health metric became zero |
+| CloudWatch alarm | OK → ALARM after approximately 185 seconds; returned to OK after recovery |
+| Manual outage recovery | Passed; public smoke test passed after restoration |
+| SNS/SQS notifications | Both failure and recovery notifications observed in the encrypted SQS queue |
+| Manual rollback between two successful releases | Next verification checkpoint |
 
-## Still requires your accounts and deployment
+## Limits
 
-- Actual GitHub Actions execution, including its vulnerability scanner and shellcheck jobs.
-- AWS resource provisioning, IAM/OIDC authorization, and cloud-init on EC2.
-- DNS and Caddy public certificate issuance.
-- SSM release execution and rollback on an actual AWS host.
-- CloudWatch log/metric delivery, alarms, and confirmed SNS notifications.
-- Controlled recovery drills and evidence for CV claims.
-
-Validation and mocked plans prove configuration consistency, not cloud deployment success. Local HTTP proxy testing does not verify public HTTPS.
+This is a single-instance personal project. Updates can interrupt traffic; it is not highly available. The continuous custom metric checks the local application, not public DNS/TLS. Public HTTPS is checked during release. No business database exists, and Terraform state is not a backup of instance-local certificate files. No zero-downtime, production-scale or unmeasured performance claim is made.

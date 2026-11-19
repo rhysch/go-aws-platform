@@ -64,7 +64,7 @@ Cloud-init installs Docker and AWS CLI, ensures SSM is active, writes non-secret
 
 The **instance role** lets EC2 read release bundles, pull from this private ECR repository, send logs, publish health metrics and communicate with SSM. The release script obtains an expiring ECR token and keeps its Docker login configuration in a temporary root-only directory, removed on exit. Applications do not need AWS permissions. IMDSv2 is required and the metadata hop limit is one; the host can retrieve credentials while typical bridged containers cannot.
 
-The **GitHub deployment role** can publish/pull this ECR repository, upload release bundles and send the permitted SSM command to this instance. It cannot create infrastructure or access Terraform state. Its trust policy accepts the specific repository and `production` environment, with audience `sts.amazonaws.com`.
+The **GitHub deployment role** can publish/pull this ECR repository, upload release bundles and send the permitted SSM command to this instance. It cannot create infrastructure or access Terraform state. Its trust policy accepts the exact repository subject and `production` environment, with audience `sts.amazonaws.com`. This repository uses GitHub’s immutable owner/repository IDs in that subject, so the legacy name-only subject does not match.
 
 The GitHub job requests an OIDC identity token; AWS validates it and issues short-lived credentials. No long-lived AWS access key is stored in GitHub. ECR publishing also uses this temporary AWS role; no separate registry publishing token is required.
 

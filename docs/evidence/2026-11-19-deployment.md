@@ -1,0 +1,63 @@
+# AWS deployment evidence — 2026-11-19
+
+## Infrastructure
+
+- Region: Hyderabad (`ap-south-2`).
+- Terraform bootstrap: six resources created, including private state storage and GitHub OIDC provider.
+- Application: 35 resources created; no pre-existing resources changed or destroyed.
+- Server bootstrap verified through Systems Manager: cloud-init done, Docker Compose installed, monitoring timer active.
+- Production GitHub environment permits the main branch only.
+- No stored AWS access key or registry password is required by the Actions workflows.
+
+## Actual troubleshooting example
+
+The initial infrastructure apply failed on the SNS topic policy: AWS returned `Policy statement action out of service scope!` for the owner statement using `SNS:*`. Terraform validation and mocked planning had passed, but the service rejected that action during apply.
+
+The owner statement was changed to explicit supported SNS actions. A fresh plan showed one resource to add and no changes or destruction. The corrective apply completed successfully. Previously created infrastructure remained intact.
+
+[Correction commit](https://github.com/rhysch/go-aws-platform/commit/135923f6750b1a51d1705614bdfd55651688882c)
+
+[Passing CI after correction](https://github.com/rhysch/go-aws-platform/actions/runs/44492922141)
+
+## OIDC troubleshooting
+
+The first release reached AWS authentication but failed with `Not authorized to perform sts:AssumeRoleWithWebIdentity`. Inspection of GitHub's OIDC customization API showed `use_immutable_subject=true`: the actual subject prefix contains immutable owner and repository IDs. The original role expected the legacy name-only format.
+
+The trust policy was corrected to match the exact immutable repository subject and production environment, without wildcards. GitHub's production environment remains restricted to main. A diagnostic step masks the token and prints only selected non-secret claims.
+
+[OIDC support commit](https://github.com/rhysch/go-aws-platform/commit/18aea55)
+
+Release, monitoring and recovery evidence will be appended only after those checks complete.
+
+## First successful release
+
+- [Release run 44495088917](https://github.com/rhysch/go-aws-platform/actions/runs/44495088917) passed both build and deployment jobs.
+- Released commit: `18aea55f45cb6c36d57bdd13e545932d26336cad`.
+- OIDC role assumption and private ECR publishing succeeded.
+- SSM deployment command completed successfully.
+- Caddy public HTTPS and exact version were verified by the release and an independent local Go smoke test.
+- Demo endpoint: https://go-platform.16-113-199-23.sslip.io
+
+Infrastructure matched Terraform with no proposed changes after the SNS correction; the subsequent OIDC correction changed only the role trust policy.
+
+## Runtime verification
+
+- The Go container ran as `10001:10001`, with a read-only root filesystem and healthy Docker status.
+- Its diagnostic host port bound only to `127.0.0.1:8080`; Caddy exposed the web ports.
+- Temporary ECR login configuration was removed after deployment.
+- Application and Caddy access log streams were observed in CloudWatch.
+- All three alarms reached `OK` before the controlled outage drill.
+
+## Controlled outage and recovery
+
+- Go container stopped through SSM at **09:22:13 UTC**; a six-minute fallback recovery timer was scheduled first.
+- Caddy stayed running and returned **HTTP 502** while its upstream was unavailable.
+- `AppHealthy` changed from 1 to 0 in the 09:22–09:25 metric periods.
+- Application alarm changed **OK → ALARM at 09:25:18 UTC**, approximately 185 seconds after the stop.
+- CloudWatch recorded successful execution of its SNS alarm action.
+- Manual restoration through SSM completed at **09:26:24 UTC**, returning the original release version; the fallback timer was cancelled.
+- Independent public Go smoke verification passed after restoration.
+- Alarm changed **ALARM → OK at 09:27:18 UTC**.
+- Both failure and recovery notification delivery to SQS were observed; see [sanitized alarm messages](alarm-notifications.json).
+
+This was deliberate downtime in a single-instance demo, not zero-downtime deployment or an automatic-healing guarantee.

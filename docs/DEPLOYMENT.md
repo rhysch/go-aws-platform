@@ -99,7 +99,7 @@ No AWS or registry Actions secrets are required. Build/deployment jobs skip when
 
 ## 6. Release
 
-Push to main or select Actions → Release → Run workflow → main. Leave `release_sha` blank for a new build.
+Push an application/configuration change to main, or select Actions → Release → Run workflow → main. Leave `release_sha` blank for a new build. Documentation-only pushes skip automatic release; CI still runs.
 
 The workflow tests Go, authenticates using OIDC, builds or reuses an immutable ECR image, scans that exact image, publishes it if new, uploads the deployment bundle, invokes SSM and verifies the public version using the Go smoke tool. Investigate vulnerability-scan failures rather than bypassing them. The scan gate covers selected high/critical vulnerabilities with an available fix; it does not establish that every possible security issue is absent.
 

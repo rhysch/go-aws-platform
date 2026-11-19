@@ -19,7 +19,7 @@ compose() {
 }
 verify() {
     local expected=$1
-    for attempt in $(seq 1 30); do
+    for ((attempt = 1; attempt <= 30; attempt++)); do
         if curl -fsS --connect-timeout 3 --max-time 5 http://127.0.0.1:8080/version \
           | jq -e --arg expected "$expected" '.version == $expected' >/dev/null; then return 0; fi
         sleep 2

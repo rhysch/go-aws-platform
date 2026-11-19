@@ -26,7 +26,7 @@ command_id=$(aws ssm send-command --region "$AWS_REGION" --instance-ids "$INSTAN
   --cloud-watch-output-config "CloudWatchOutputEnabled=true,CloudWatchLogGroupName=$SSM_LOG_GROUP" \
   --query 'Command.CommandId' --output text)
 echo "SSM command: $command_id"
-for attempt in $(seq 1 190); do
+for ((attempt = 1; attempt <= 190; attempt++)); do
     invocation=$(aws ssm get-command-invocation --region "$AWS_REGION" \
       --command-id "$command_id" --instance-id "$INSTANCE_ID" --output json 2>/dev/null || true)
     if [[ -z $invocation ]]; then invocation='{}'; fi

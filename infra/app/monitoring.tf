@@ -70,7 +70,7 @@ resource "aws_sns_topic_subscription" "queue" {
 resource "aws_sns_topic_policy" "alerts" {
   arn = aws_sns_topic.alerts.arn
   policy = jsonencode({ Version = "2012-10-17", Statement = [
-    { Sid = "OwnerAdministration", Effect = "Allow", Principal = { AWS = "${local.prefix}:iam::${data.aws_caller_identity.current.account_id}:root" }, Action = "SNS:*", Resource = aws_sns_topic.alerts.arn },
+    { Sid = "OwnerAdministration", Effect = "Allow", Principal = { AWS = "${local.prefix}:iam::${data.aws_caller_identity.current.account_id}:root" }, Action = ["SNS:GetTopicAttributes", "SNS:SetTopicAttributes", "SNS:AddPermission", "SNS:RemovePermission", "SNS:DeleteTopic", "SNS:Subscribe", "SNS:ListSubscriptionsByTopic", "SNS:Publish"], Resource = aws_sns_topic.alerts.arn },
     { Sid = "CloudWatchAlarms", Effect = "Allow", Principal = { Service = "cloudwatch.amazonaws.com" }, Action = "SNS:Publish", Resource = aws_sns_topic.alerts.arn,
       Condition = {
         StringEquals = { "aws:SourceAccount" = data.aws_caller_identity.current.account_id },

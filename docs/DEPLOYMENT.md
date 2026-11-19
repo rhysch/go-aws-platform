@@ -40,6 +40,14 @@ cp infra/app/terraform.tfvars.example infra/app/terraform.tfvars
 
 Edit both files. Copy the state bucket and OIDC ARN from bootstrap. Set region, repository, ACME email and instance size. Leave `domain=""` for a temporary Elastic-IP-based sslip.io hostname, or supply a hostname you control. ECR's private repository URL is generated automatically. Keep `alarm_email=""` unless you explicitly want an email subscription. Alarm delivery to SQS works without email.
 
+Check GitHub's exact OIDC subject format before applying the role trust policy:
+
+```bash
+gh api repos/OWNER/REPO/actions/oidc/customization/sub
+```
+
+If `use_immutable_subject` is true, set Terraform's `github_oidc_subject` to the returned `sub_claim_prefix` plus `:environment:production`. It includes immutable owner/repository IDs. Leaving the variable empty uses the legacy name-only subject, suitable only for repositories actually issuing that format. The release logs selected non-secret claims to help diagnose a mismatch; it never logs the OIDC token.
+
 ```bash
 terraform -chdir=infra/app init -backend-config=backend.hcl
 terraform -chdir=infra/app validate
@@ -87,14 +95,6 @@ Set these repository Actions variables from Terraform outputs:
 | `SSM_LOG_GROUP` | `ssm_log_group` |
 | `APP_URL` | `url` |
 
-Check GitHub's exact OIDC subject format before applying the role trust policy:
-
-```bash
-gh api repos/OWNER/REPO/actions/oidc/customization/sub
-```
-
-If `use_immutable_subject` is true, set Terraform's `github_oidc_subject` to the returned `sub_claim_prefix` plus `:environment:production`. It includes immutable owner/repository IDs. Leaving the variable empty uses the legacy name-only subject, suitable only for repositories actually issuing that format. The release logs selected non-secret claims to help diagnose a mismatch; it never logs the OIDC token.
-
 No AWS or registry Actions secrets are required. Build/deployment jobs skip when their required variables are missing. Terraform apply remains a separate, reviewed operation outside the application workflow.
 
 ## 6. Release
@@ -123,7 +123,7 @@ Generate a fresh saved plan, review it and apply it. If EC2 is replaced, update 
 
 ## 9. Costs and cleanup
 
-EC2, EBS, public IPv4, ECR, S3, CloudWatch, SNS and SQS can incur charges. Check regional pricing and set an AWS Budget. There is no free-tier assumption. Stop EC2 when not demonstrating it if suitable; storage, EIP and other retained resources can still cost money.
+EC2, EBS, public IPv4, ECR, S3, CloudWatch, SNS and SQS can incur charges. For this Hyderabad demo, the AWS Price List API returned $0.0224/hour for Linux on-demand t3.small on 2026-11-19: approximately $16.35 for 730 compute hours, before storage, IPv4, monitoring, other services and taxes. This is an observed price, not a budget cap or a promise of future pricing. Check regional pricing and set an AWS Budget. There is no free-tier assumption. Stop EC2 when not demonstrating it if suitable; storage, EIP and other retained resources can still cost money.
 
 To remove the application, generate and review a destroy plan:
 

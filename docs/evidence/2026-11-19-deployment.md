@@ -61,3 +61,32 @@ Infrastructure matched Terraform with no proposed changes after the SNS correcti
 - Both failure and recovery notification delivery to SQS were observed; see [sanitized alarm messages](alarm-notifications.json).
 
 This was deliberate downtime in a single-instance demo, not zero-downtime deployment or an automatic-healing guarantee.
+
+## Infrastructure drift check
+
+After the SNS and immutable OIDC corrections, a fresh real `terraform plan -detailed-exitcode` returned exit code 0: **No changes. Your infrastructure matches the configuration.**
+
+## Second verified release
+
+- [Release run 44496882207](https://github.com/rhysch/go-aws-platform/actions/runs/44496882207) passed.
+- [CI run 44496882107](https://github.com/rhysch/go-aws-platform/actions/runs/44496882107) passed.
+- Release commit: `7747c14a8436af879f6e49bfdaa90184d5b08fb3`.
+- Independent public Go smoke test confirmed this exact version before recovery tests.
+
+## Failed-image recovery test
+
+A controlled candidate used the deliberately nonexistent image tag `ffffffffffffffffffffffffffffffffffffffff`. The pull failed as expected. The deployment script collected diagnostics, invoked its previous-release restoration path, and returned a failure code.
+
+The test then verified that the `current` symlink still pointed to `7747c14a8436af879f6e49bfdaa90184d5b08fb3`, public HTTPS served that same version, and temporary registry credentials had been removed. The test harness passed.
+
+This verifies rejection and recovery for an image-pull failure before replacing the running app; it is not proof of recovery from every possible mid-deployment or host failure.
+
+## Manual rollback
+
+The normal Release workflow was dispatched with `release_sha=18aea55f45cb6c36d57bdd13e545932d26336cad`. It reused the retained archive and image rather than rebuilding that commit.
+
+An independent public Go smoke test verified the old version, health and readiness after rollback. [Rollback run 44497723380](https://github.com/rhysch/go-aws-platform/actions/runs/44497723380).
+
+The newer release `7747c14a8436af879f6e49bfdaa90184d5b08fb3` was then restored through the same workflow. An independent public Go smoke test confirmed the newer version, health and readiness again. [Restore run 44498046441](https://github.com/rhysch/go-aws-platform/actions/runs/44498046441).
+
+Documentation-only commits can be newer than the running application release; they deliberately do not redeploy the service.

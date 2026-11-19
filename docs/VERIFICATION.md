@@ -9,6 +9,7 @@ Verified locally and in AWS on 2026-11-19. See [deployment evidence](evidence/20
 | Local Go/Caddy Compose smoke verification | Passed |
 | Terraform validation and mocked security plan | Passed |
 | AWS bootstrap and application infrastructure | Applied in Hyderabad; 6 bootstrap and 35 application resources |
+| Final real Terraform drift check | Passed with exit code 0; no proposed changes |
 | GitHub production environment | Restricted to main |
 | OIDC and private ECR publishing | Verified; immutable repository subject and immutable image tags |
 | SSM application deployment | Passed |
@@ -20,7 +21,8 @@ Verified locally and in AWS on 2026-11-19. See [deployment evidence](evidence/20
 | CloudWatch alarm | OK → ALARM after approximately 185 seconds; returned to OK after recovery |
 | Manual outage recovery | Passed; public smoke test passed after restoration |
 | SNS/SQS notifications | Both failure and recovery notifications observed in the encrypted SQS queue |
-| Manual rollback between two successful releases | Next verification checkpoint |
+| Failed-image deployment recovery | Passed: prior version preserved and temporary credentials removed |
+| Manual rollback and restore | Passed: older release verified, then newer release restored and verified |
 
 ## Limits
 

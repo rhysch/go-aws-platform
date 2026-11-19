@@ -41,3 +41,13 @@ variable "alarm_email" {
   type    = string
   default = ""
 }
+
+variable "github_oidc_subject" {
+  type        = string
+  default     = ""
+  description = "Exact GitHub OIDC subject, including immutable owner/repository IDs when enabled."
+  validation {
+    condition     = var.github_oidc_subject == "" || can(regex("^repo:[A-Za-z0-9_.@/-]+:environment:production$", var.github_oidc_subject))
+    error_message = "Use an exact repo:...:environment:production subject, without wildcards."
+  }
+}

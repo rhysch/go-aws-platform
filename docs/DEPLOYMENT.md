@@ -87,6 +87,14 @@ Set these repository Actions variables from Terraform outputs:
 | `SSM_LOG_GROUP` | `ssm_log_group` |
 | `APP_URL` | `url` |
 
+Check GitHub's exact OIDC subject format before applying the role trust policy:
+
+```bash
+gh api repos/OWNER/REPO/actions/oidc/customization/sub
+```
+
+If `use_immutable_subject` is true, set Terraform's `github_oidc_subject` to the returned `sub_claim_prefix` plus `:environment:production`. It includes immutable owner/repository IDs. Leaving the variable empty uses the legacy name-only subject, suitable only for repositories actually issuing that format. The release logs selected non-secret claims to help diagnose a mismatch; it never logs the OIDC token.
+
 No AWS or registry Actions secrets are required. Build/deployment jobs skip when their required variables are missing. Terraform apply remains a separate, reviewed operation outside the application workflow.
 
 ## 6. Release

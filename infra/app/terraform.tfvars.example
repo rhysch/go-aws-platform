@@ -6,3 +6,7 @@ github_repository        = "rhysch/go-aws-platform"
 github_oidc_provider_arn = "arn:aws:iam::YOUR-ACCOUNT-ID:oidc-provider/token.actions.githubusercontent.com"
 instance_type            = "t3.small"
 alarm_email              = "YOU@example.com"
+
+# Query GitHub: gh api repos/OWNER/REPO/actions/oidc/customization/sub
+# If use_immutable_subject=true, append :environment:production to sub_claim_prefix.
+github_oidc_subject = ""

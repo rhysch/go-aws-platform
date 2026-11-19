@@ -1,35 +1,26 @@
 # Deploy to AWS
 
-Complete local checkpoints in START_HERE.md first. These commands are instructions, not a record of an existing deployment. They create billable resources when you apply Terraform. Review current pricing and set an AWS Budget yourself before proceeding.
+Complete START_HERE.md first. Local tests do not prove an AWS deployment. These steps create billable resources.
 
-## 1. Accounts and tools
+## 1. Tools and identity
 
-You need:
-
-- A GitHub repository containing this code, default branch `main`.
-- A public Docker Hub repository, e.g. `YOURUSER/go-aws-platform`.
-- A Docker Hub publishing token scoped to the repository where available.
-- An AWS account and a local identity allowed to provision the resources in `infra/` (including IAM).
-- Terraform 1.10+, AWS CLI v2, Go, Docker with Compose, Git, and a domain/subdomain you control.
-
-Use a local AWS profile with short-lived credentials where possible. For example, configure AWS IAM Identity Center using your organization's values:
+Use Go, Docker with Compose, Terraform 1.10+, AWS CLI v2, and GitHub CLI. Authenticate AWS with an approved local profile; do not put credentials into this repository. GitHub authentication must allow repository configuration and workflow dispatch.
 
 ```bash
-aws configure sso --profile portfolio
-aws sso login --profile portfolio
-export AWS_PROFILE=portfolio
+export AWS_PROFILE=YOUR_WORKING_PROFILE
+export AWS_REGION=ap-south-2
 aws sts get-caller-identity
 ```
 
-If your account does not use Identity Center, use its approved authentication method. Do not create root access keys or put AWS keys into this repository. Never use administrator permissions for the application's EC2 role or GitHub deployment role.
+The implementation uses private Amazon ECR. No Docker Hub account or publishing token is required. GitHub uses OIDC, and EC2 uses its instance role.
 
-## 2. Bootstrap remote state
+## 2. Bootstrap
 
 ```bash
 cp infra/bootstrap/terraform.tfvars.example infra/bootstrap/terraform.tfvars
 ```
 
-Edit the copy: choose a globally unique state bucket name and your region. The default region is `ap-south-1`. GitHub's OIDC provider is account-wide; if `token.actions.githubusercontent.com` already exists in IAM, set `create_github_oidc = false` and reuse that provider's ARN.
+Edit the copy: choose your region and a globally unique private state bucket. If your AWS account already has GitHub's OIDC provider, set `create_github_oidc=false` and reuse its ARN.
 
 ```bash
 terraform -chdir=infra/bootstrap init
@@ -38,18 +29,16 @@ terraform -chdir=infra/bootstrap apply bootstrap.tfplan
 terraform -chdir=infra/bootstrap output
 ```
 
-The bootstrap state is local at `infra/bootstrap/terraform.tfstate`: back it up to private encrypted storage. Do not commit it. The bucket's `prevent_destroy` intentionally blocks an ordinary destroy. This step cannot initially store its own state in a bucket that does not yet exist.
+Bootstrap initially uses local state. Keep a private encrypted backup of that state; never commit it. The bucket has versioning, encryption, blocked public access, a TLS-only policy and `prevent_destroy`.
 
-## 3. Configure the application infrastructure
+## 3. Plan application infrastructure
 
 ```bash
 cp infra/app/backend.hcl.example infra/app/backend.hcl
 cp infra/app/terraform.tfvars.example infra/app/terraform.tfvars
 ```
 
-Edit both files. Replace every placeholder. Use a lowercase DNS hostname such as `app.yourdomain.com`. `image_repository` must match your public Docker Hub repository exactly, prefixed with `docker.io/`. Copy the OIDC provider ARN from bootstrap or IAM.
-
-The backend region is the bucket's region; the application region is where EC2 runs. Keep them the same for this first deployment.
+Edit both files. Copy the state bucket and OIDC ARN from bootstrap. Set region, repository, ACME email and instance size. Leave `domain=""` for a temporary Elastic-IP-based sslip.io hostname, or supply a hostname you control. ECR's private repository URL is generated automatically. Keep `alarm_email=""` unless you explicitly want an email subscription. Alarm delivery to SQS works without email.
 
 ```bash
 terraform -chdir=infra/app init -backend-config=backend.hcl
@@ -58,131 +47,80 @@ terraform -chdir=infra/app test
 terraform -chdir=infra/app plan -out=production.tfplan
 ```
 
-Read the plan. It includes a VPC, subnet and routing, security groups, an EC2 instance and EIP, IAM roles, a private release bucket, log groups, alarms and SNS. Saved plans and state can contain sensitive information: keep them private.
-
-If the plan matches your intent:
+Review the plan before applying. It includes networking, one EC2 instance, an Elastic IP, encrypted storage, IAM, ECR, private release storage, logs, alarms and SNS/SQS. Burstable CPU credits use standard mode to avoid surplus-credit charges. Read replacement actions closely: new AMIs or user-data changes can replace the server and delete local Docker volumes.
 
 ```bash
 terraform -chdir=infra/app apply production.tfplan
 terraform -chdir=infra/app output
 ```
 
-No application runs yet. The local health alarm may enter ALARM before the first release; that is expected.
+The app is not running yet. The health alarm may initially enter ALARM.
 
-## 4. Point DNS at the instance
+## 4. DNS and bootstrap
 
-Create an A record for your chosen hostname using Terraform's `public_ip` output. DNS is deliberately managed outside this repository so it works with different DNS providers.
+With your own domain, create an A record pointing to `public_ip`. With the temporary hostname, public DNS resolves the embedded IP automatically. Check the `domain` output using `nslookup`. Do not create an AAAA record without IPv6 support. Public web traffic uses ports 80/443; SSH and 8080 remain closed.
 
-```bash
-nslookup app.yourdomain.com
-```
-
-It must resolve to the Elastic IP. Do not add an AAAA record unless you have actually configured IPv6. If your DNS provider offers an HTTP proxy, use DNS-only mode for the first deployment so the request path is easy to understand.
-
-Verify port 80 and 443 are reachable. Port 22 and 8080 should not be publicly open. Caddy needs reachable DNS and web ports to obtain its certificate.
-
-## 5. Verify bootstrap through Systems Manager
-
-AWS Console → Systems Manager → Fleet Manager / managed nodes. Wait for the instance to appear online. Open a Session Manager session (your own local/console identity needs permission).
-
-On the instance:
+Open AWS Systems Manager → managed nodes → Session Manager. Wait for the new instance to appear online. On the host:
 
 ```bash
 sudo cloud-init status --wait
 sudo test -f /opt/go-aws-platform/bootstrap-complete && echo bootstrap-complete
-sudo docker version
 sudo docker compose version
 sudo systemctl status go-aws-platform-health.timer --no-pager
 ```
 
-If cloud-init failed, inspect `/var/log/cloud-init-output.log`. Do not proceed by rerunning the entire bootstrap script blindly. Identify the failed step first.
+For errors inspect `/var/log/cloud-init-output.log`. Caddy needs working DNS and reachable ports 80/443 before certificate issuance succeeds.
 
-## 6. Configure GitHub
+## 5. Configure GitHub
 
-Create an environment named **production**. Restrict its deployment branches to **main**. Where your GitHub plan supports it, add required reviewers. The OIDC trust policy binds to the environment; these settings are part of the intended trust boundary.
+Create an environment named `production`, permit deployments only from `main`, and protect main with required CI checks. Where supported, add required reviewers. Both image publishing and deployment use this environment's OIDC identity.
 
-Set these **repository Actions secrets** (the build job does not use the production environment):
+Set these repository Actions variables from Terraform outputs:
 
-| Secret | Value |
+| Variable | Output |
 |---|---|
-| `DOCKERHUB_USERNAME` | Docker Hub account name |
-| `DOCKERHUB_TOKEN` | Publishing token |
+| `IMAGE_REPOSITORY` | `image_repository` |
+| `AWS_REGION` | `region` |
+| `AWS_DEPLOY_ROLE_ARN` | `deploy_role_arn` |
+| `RELEASE_BUCKET` | `release_bucket` |
+| `INSTANCE_ID` | `instance_id` |
+| `SSM_LOG_GROUP` | `ssm_log_group` |
+| `APP_URL` | `url` |
 
-Set these **repository Actions variables**:
+No AWS or registry Actions secrets are required. Build/deployment jobs skip when their required variables are missing. Terraform apply remains a separate, reviewed operation outside the application workflow.
 
-| Variable | Value |
-|---|---|
-| `IMAGE_REPOSITORY` | Exactly `docker.io/YOURUSER/go-aws-platform`, matching Terraform |
-| `AWS_REGION` | Terraform `region` output |
-| `AWS_DEPLOY_ROLE_ARN` | Terraform `deploy_role_arn` output |
-| `RELEASE_BUCKET` | Terraform `release_bucket` output |
-| `INSTANCE_ID` | Terraform `instance_id` output |
-| `SSM_LOG_GROUP` | Terraform `ssm_log_group` output |
-| `APP_URL` | Terraform `url` output, including `https://` |
+## 6. Release
 
-Protect main and require the CI checks before merge. Review action dependencies before publishing; third-party actions are referenced by version tags in this starter. Pin reviewed full action commit SHAs when hardening the repository.
+Push to main or select Actions → Release → Run workflow → main. Leave `release_sha` blank for a new build.
 
-Confirm the SNS subscription email if you supplied `alarm_email`. Without confirmation, email alarms will not be delivered.
+The workflow tests Go, authenticates using OIDC, builds or reuses an immutable ECR image, scans that exact image, publishes it if new, uploads the deployment bundle, invokes SSM and verifies the public version using the Go smoke tool. Investigate vulnerability-scan failures rather than bypassing them. The scan gate covers selected high/critical vulnerabilities with an available fix; it does not establish that every possible security issue is absent.
 
-## 7. Run the first release
+On EC2, the script obtains a short-lived ECR login, pulls the image, validates Caddy, starts the stack and checks local/public versions. It removes its temporary registry configuration on exit. Failed rollout attempts restore the last successful release. First deployment has no previous release.
 
-Push the code to main after configuring the variables/secrets, or open Actions → Release → Run workflow, select main, and leave `release_sha` blank.
-
-Release build is skipped until `IMAGE_REPOSITORY` is configured. Deployment is skipped until all six AWS/deployment variables are configured. This keeps the initial source upload from attempting an unconfigured deployment. Configure secrets and variables before running a release.
-
-Watch:
-
-1. Go tests and vet.
-2. Image build and high/critical fixable vulnerability scan.
-3. Publishing the scanned image under the full Git commit SHA.
-4. Deployment bundle upload.
-5. OIDC role assumption.
-6. SSM command and server rollout.
-7. Public Go smoke verification.
-
-A scan failure should be investigated, not bypassed just to obtain a green run. Fix or upgrade the affected dependency/image. `ignore-unfixed` is explicit: the gate only fails on selected vulnerabilities with an available fix; inspect the full security context before production use.
-
-The first image pull and certificate issuance can take time. If release fails, inspect its SSM command output and CloudWatch. A public Docker Hub repository is required because the server does not store registry credentials.
-
-## 8. Verify independently
-
-From your own machine:
+## 7. Verify and practice recovery
 
 ```bash
-curl -i https://app.yourdomain.com/healthz
-curl -i https://app.yourdomain.com/version
-go run ./cmd/smoke -url https://app.yourdomain.com -expect-version FULL_40_CHARACTER_SHA
+curl -i https://YOUR_HOSTNAME/healthz
+curl -i https://YOUR_HOSTNAME/version
+go run ./cmd/smoke -url https://YOUR_HOSTNAME -expect-version FULL_COMMIT_SHA
 ```
 
-Do not use `-k`: TLS validation is part of the test. Confirm the exact SHA rather than accepting any successful response.
+Do not disable TLS validation. Inspect CloudWatch logs, custom `AppHealthy` metrics and the alarm state. SNS routes alarm notifications to the encrypted SQS queue; its URL is a Terraform output. An optional email subscription requires manual confirmation.
 
-In CloudWatch, inspect application and Caddy log groups, then the `GoAWSPlatform / AppHealthy` metric. The custom metric needs a few minutes; EC2 basic metrics use longer intervals. Complete the runbook exercises before claiming recovery experience.
+Follow RUNBOOK.md to perform a controlled stop/recovery and manual rollback to a retained release. Record actual results in docs/evidence. Do not claim them from configuration alone.
 
-## 9. Infrastructure updates
+## 8. Update infrastructure
 
-Make a small Terraform change, then:
+Generate a fresh saved plan, review it and apply it. If EC2 is replaced, update GitHub's `INSTANCE_ID`, verify bootstrap and redeploy a retained release. Check EIP and DNS. Terraform state is not a backup of server files or certificates.
 
-```bash
-terraform -chdir=infra/app plan -out=production.tfplan
-terraform -chdir=infra/app apply production.tfplan
-```
+## 9. Costs and cleanup
 
-Read replacement actions closely. New AMIs or cloud-init changes can replace EC2 and erase its local volumes. If the instance ID or other outputs change, update the corresponding GitHub variables and redeploy a retained release. The EIP should remain associated through Terraform, but verify it and DNS after replacement.
+EC2, EBS, public IPv4, ECR, S3, CloudWatch, SNS and SQS can incur charges. Check regional pricing and set an AWS Budget. There is no free-tier assumption. Stop EC2 when not demonstrating it if suitable; storage, EIP and other retained resources can still cost money.
 
-The bootstrap bucket, release bucket, retained Docker images and DNS are separate concerns. A successful `terraform apply` does not mean the application has been deployed.
-
-## 10. Cleanup
-
-Plan destruction first:
+To remove the application, generate and review a destroy plan:
 
 ```bash
 terraform -chdir=infra/app plan -destroy -out=destroy.tfplan
 ```
 
-The versioned release bucket has `force_destroy = false`. Terraform will refuse to delete it while it contains objects/versions. Preserve needed evidence and releases, then explicitly remove the bucket's object versions and delete markers using the S3 console if you choose to destroy the environment. After removing versions, regenerate the destroy plan and review it before applying.
-
-```bash
-terraform -chdir=infra/app apply destroy.tfplan
-```
-
-Remove stale DNS records. Verify EC2, EBS volumes, EIP, alarms, logs and SNS resources were actually removed. The protected bootstrap state bucket and account-wide OIDC provider intentionally remain; do not delete a shared provider or state bucket used by other projects. Retained state versions and any other resources can still incur charges.
+ECR has `force_delete=false` and the versioned release bucket has `force_destroy=false`. Preserve what you need, then explicitly remove retained ECR images and S3 object versions/delete markers if you intend to delete those resources. Regenerate the destroy plan after cleanup and review it before applying. The protected bootstrap bucket and account-wide OIDC provider remain separate. Do not delete resources shared with other projects.

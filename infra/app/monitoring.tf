@@ -44,3 +44,38 @@ resource "aws_cloudwatch_metric_alarm" "cpu" {
   comparison_operator = "GreaterThanThreshold"
   alarm_actions       = [aws_sns_topic.alerts.arn]
 }
+
+# A queue makes alarm delivery verifiable without sending email to anyone.
+resource "aws_sqs_queue" "alerts" {
+  name                      = "${var.project}-alerts"
+  message_retention_seconds = 86400
+  sqs_managed_sse_enabled   = true
+}
+resource "aws_sqs_queue_policy" "alerts" {
+  queue_url = aws_sqs_queue.alerts.url
+  policy = jsonencode({ Version = "2012-10-17", Statement = [{
+    Effect    = "Allow", Principal = { Service = "sns.amazonaws.com" },
+    Action    = "sqs:SendMessage", Resource = aws_sqs_queue.alerts.arn,
+    Condition = { ArnEquals = { "aws:SourceArn" = aws_sns_topic.alerts.arn } }
+  }] })
+}
+resource "aws_sns_topic_subscription" "queue" {
+  topic_arn            = aws_sns_topic.alerts.arn
+  protocol             = "sqs"
+  endpoint             = aws_sqs_queue.alerts.arn
+  raw_message_delivery = true
+  depends_on           = [aws_sqs_queue_policy.alerts]
+}
+
+resource "aws_sns_topic_policy" "alerts" {
+  arn = aws_sns_topic.alerts.arn
+  policy = jsonencode({ Version = "2012-10-17", Statement = [
+    { Sid = "OwnerAdministration", Effect = "Allow", Principal = { AWS = "${local.prefix}:iam::${data.aws_caller_identity.current.account_id}:root" }, Action = "SNS:*", Resource = aws_sns_topic.alerts.arn },
+    { Sid = "CloudWatchAlarms", Effect = "Allow", Principal = { Service = "cloudwatch.amazonaws.com" }, Action = "SNS:Publish", Resource = aws_sns_topic.alerts.arn,
+      Condition = {
+        StringEquals = { "aws:SourceAccount" = data.aws_caller_identity.current.account_id },
+        ArnLike      = { "aws:SourceArn" = "${local.prefix}:cloudwatch:${var.aws_region}:${data.aws_caller_identity.current.account_id}:alarm:${var.project}-*" }
+      }
+    }
+  ] })
+}

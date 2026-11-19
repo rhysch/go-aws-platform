@@ -45,6 +45,13 @@ failed() {
     exit "$result"
 }
 trap failed ERR
+# Temporary ECR login material exists only for this deployment, including rollback.
+export DOCKER_CONFIG
+DOCKER_CONFIG=$(mktemp -d /run/go-platform-registry.XXXXXX)
+cleanup_registry() { rm -rf -- "$DOCKER_CONFIG"; }
+trap cleanup_registry EXIT
+registry=${IMAGE_REPOSITORY%%/*}
+aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$registry"
 compose "$release" pull
 compose "$release" run --rm --no-deps caddy caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
 compose "$release" up -d --wait --wait-timeout 120

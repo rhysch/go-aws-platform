@@ -11,9 +11,10 @@ variable "project" {
   }
 }
 variable "domain" {
-  type = string
+  type    = string
+  default = ""
   validation {
-    condition     = can(regex("^[a-z0-9]([a-z0-9.-]*[a-z0-9])?\\.[a-z]{2,}$", var.domain))
+    condition     = var.domain == "" || can(regex("^[a-z0-9]([a-z0-9.-]*[a-z0-9])?\\.[a-z]{2,}$", var.domain))
     error_message = "Use a lowercase DNS hostname without scheme, spaces or port."
   }
 }
@@ -29,13 +30,6 @@ variable "github_repository" {
   validation {
     condition     = can(regex("^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$", var.github_repository))
     error_message = "Use OWNER/REPOSITORY."
-  }
-}
-variable "image_repository" {
-  type = string
-  validation {
-    condition     = can(regex("^docker.io/[a-z0-9_-]+/[a-z0-9_-]+$", var.image_repository))
-    error_message = "Use docker.io/USERNAME/IMAGE with a public Docker Hub repository."
   }
 }
 variable "github_oidc_provider_arn" { type = string }

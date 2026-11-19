@@ -24,6 +24,7 @@ data "aws_ami" "ubuntu" {
 locals {
   prefix = "arn:${data.aws_partition.current.partition}"
   bucket = "${var.project}-releases-${data.aws_caller_identity.current.account_id}-${var.aws_region}"
+  domain = var.domain != "" ? var.domain : "go-platform.${replace(aws_eip.app.public_ip, ".", "-")}.sslip.io"
 }
 resource "aws_vpc" "main" {
   cidr_block           = "10.42.0.0/16"
@@ -128,6 +129,8 @@ resource "aws_iam_role_policy" "instance" {
   role = aws_iam_role.instance.id
   policy = jsonencode({ Version = "2012-10-17", Statement = [
     { Effect = "Allow", Action = ["s3:GetObject"], Resource = "${aws_s3_bucket.releases.arn}/releases/*" },
+    { Effect = "Allow", Action = ["ecr:GetAuthorizationToken"], Resource = "*" },
+    { Effect = "Allow", Action = ["ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer", "ecr:BatchCheckLayerAvailability"], Resource = aws_ecr_repository.app.arn },
     { Effect = "Allow", Action = ["logs:CreateLogStream", "logs:PutLogEvents", "logs:DescribeLogStreams"],
     Resource = ["${aws_cloudwatch_log_group.app.arn}:*", "${aws_cloudwatch_log_group.caddy.arn}:*", "${aws_cloudwatch_log_group.ssm.arn}:*"] },
     { Effect = "Allow", Action = ["logs:DescribeLogGroups"], Resource = "*" },
@@ -140,12 +143,13 @@ resource "aws_iam_instance_profile" "main" {
   role        = aws_iam_role.instance.name
 }
 resource "aws_instance" "app" {
-  ami                         = data.aws_ami.ubuntu.id
-  instance_type               = var.instance_type
-  subnet_id                   = aws_subnet.public.id
-  vpc_security_group_ids      = [aws_security_group.web.id]
-  iam_instance_profile        = aws_iam_instance_profile.main.name
-  monitoring                  = false
+  ami                    = data.aws_ami.ubuntu.id
+  instance_type          = var.instance_type
+  subnet_id              = aws_subnet.public.id
+  vpc_security_group_ids = [aws_security_group.web.id]
+  iam_instance_profile   = aws_iam_instance_profile.main.name
+  monitoring             = false
+  credit_specification { cpu_credits = "standard" }
   user_data_replace_on_change = true
   metadata_options {
     http_endpoint               = "enabled"
@@ -161,9 +165,9 @@ resource "aws_instance" "app" {
   user_data = templatefile("${path.module}/cloud-init.sh.tftpl", {
     aws_region      = var.aws_region
     project         = var.project
-    domain          = var.domain
+    domain          = local.domain
     acme_email      = var.acme_email
-    image_repo      = var.image_repository
+    image_repo      = aws_ecr_repository.app.repository_url
     app_log_group   = aws_cloudwatch_log_group.app.name
     caddy_log_group = aws_cloudwatch_log_group.caddy.name
     health_script   = file("${path.module}/../../scripts/health-metric.sh")
@@ -173,9 +177,13 @@ resource "aws_instance" "app" {
 }
 resource "aws_eip" "app" {
   domain     = "vpc"
-  instance   = aws_instance.app.id
   depends_on = [aws_internet_gateway.main]
 }
+resource "aws_eip_association" "app" {
+  instance_id   = aws_instance.app.id
+  allocation_id = aws_eip.app.id
+}
+
 resource "aws_iam_role" "github_deploy" {
   name_prefix = "${var.project}-deploy-"
   assume_role_policy = jsonencode({ Version = "2012-10-17", Statement = [{
@@ -191,10 +199,20 @@ resource "aws_iam_role_policy" "github_deploy" {
   role = aws_iam_role.github_deploy.id
   policy = jsonencode({ Version = "2012-10-17", Statement = [
     { Effect = "Allow", Action = ["s3:GetObject", "s3:PutObject"], Resource = "${aws_s3_bucket.releases.arn}/releases/*" },
+    { Effect = "Allow", Action = ["ecr:GetAuthorizationToken"], Resource = "*" },
+    { Effect = "Allow", Action = ["ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer", "ecr:BatchCheckLayerAvailability", "ecr:InitiateLayerUpload", "ecr:UploadLayerPart", "ecr:CompleteLayerUpload", "ecr:PutImage", "ecr:DescribeImages"], Resource = aws_ecr_repository.app.arn },
     { Effect = "Allow", Action = ["ssm:SendCommand"], Resource = [
       "${local.prefix}:ssm:${var.aws_region}::document/AWS-RunShellScript",
       aws_instance.app.arn
     ] },
     { Effect = "Allow", Action = ["ssm:GetCommandInvocation"], Resource = "*" }
   ] })
+}
+
+resource "aws_ecr_repository" "app" {
+  name                 = var.project
+  image_tag_mutability = "IMMUTABLE"
+  force_delete         = false
+  encryption_configuration { encryption_type = "AES256" }
+  image_scanning_configuration { scan_on_push = true }
 }

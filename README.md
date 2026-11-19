@@ -11,13 +11,13 @@ flowchart TD
     User[Browser / API client] -->|HTTPS 443| Caddy
     Caddy -->|Private Docker network| API[Go API :8080]
     GitHub[GitHub main branch] --> Test[Tests + vet + vulnerability scan]
-    Test --> Hub[Public Docker Hub image: commit SHA]
+    Test --> Hub[Private Amazon ECR image: immutable commit SHA]
     Test --> Bundle[Private S3 release bundle]
     GitHub -->|OIDC temporary credentials| Role[AWS deployment role]
     Role -->|SSM Run Command| EC2
     Hub --> EC2
     Bundle --> EC2
-    Terraform --> AWS[VPC / subnet / routing / EC2 / IAM / S3 / CloudWatch]
+    Terraform --> AWS[VPC / subnet / routing / EC2 / IAM / S3 / ECR / CloudWatch / SQS]
     subgraph EC2[Single Ubuntu EC2 instance]
       Caddy[Caddy :80 / :443]
       API
@@ -25,7 +25,7 @@ flowchart TD
     end
     API --> Logs[CloudWatch Logs]
     Caddy --> Logs
-    Timer --> Metrics[CloudWatch metric + alarms + SNS]
+    Timer --> Metrics[CloudWatch metric + alarms + SNS / SQS]
 ```
 
 The application has no database. `/readyz` therefore has no external dependency to check. This keeps attention on infrastructure and operations.
@@ -69,13 +69,13 @@ Unknown paths return 404. Other methods on known endpoints return 405 with `Allo
 ## Delivery design
 
 - PR CI: format check, Go tests with race detection, vet, image build/scan, local Compose smoke test, Terraform format/validation, shell checks.
-- Main release: independently reruns Go tests and image scanning, publishes the scanned image with the full commit SHA, packages deployment files, assumes an AWS role via OIDC, and deploys using SSM.
+- Main release: independently reruns Go tests and image scanning, publishes the scanned image with the full commit SHA, packages deployment files, assumes an AWS role via OIDC, publishes to private ECR, and deploys using SSM.
 - The server pulls the exact release image, validates Caddy configuration, waits for healthy containers, verifies the local release version and the public HTTPS version, then updates a `current` symlink.
 - A deployment failure attempts to restore the last successful release. On a first deployment there is no previous release. Rollback is best-effort, can itself fail, and must be verified.
 - Workflow dispatch with a prior full commit SHA redeploys the existing archived release. Run it from `main`.
 - Infrastructure changes use a separately reviewed Terraform plan and explicit local apply. Application workflows cannot apply Terraform or read its state.
 
-Commit-SHA tags are a release convention, not registry-enforced immutability. Restrict who can push images; digest pinning is a sensible later improvement.
+ECR enforces immutable commit-SHA image tags. Rerunning a release reuses and scans its existing image rather than overwriting it. EC2 uses a temporary ECR login during deployment; no registry password is retained afterward.
 
 ## Repository map
 
@@ -107,7 +107,7 @@ docs/                 Deployment, learning, interview, and operations guides
 
 This is a single-instance platform: application updates can briefly interrupt traffic and instance failure causes downtime. It does not implement high availability, autoscaling, Kubernetes, a database, or persistent business data. Caddy certificate data lives on the instance disk; protect it separately if you need to preserve it across instance replacement. Terraform state is infrastructure metadata, not a backup of server files.
 
-AWS deployment creates billable resources, including EC2, EBS, public IPv4, CloudWatch and S3. Set an AWS Budget and review current regional pricing before applying. No free-tier claim is made. A single instance avoids NAT gateway and load balancer costs but trades away resilience.
+AWS deployment creates billable resources, including EC2, EBS, public IPv4, CloudWatch, S3, ECR and SQS. Set an AWS Budget and review current regional pricing before applying. No free-tier claim is made. A single instance avoids NAT gateway and load balancer costs but trades away resilience.
 
 ## References
 

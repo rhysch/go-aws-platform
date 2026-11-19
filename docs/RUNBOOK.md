@@ -39,7 +39,7 @@ Inspect Actions → Release → SSM command ID, then AWS Systems Manager Run Com
 |---|---|
 | OIDC access denied | Exact repository, production environment, audience, ARN and permitted main branch |
 | SSM node offline | Instance role, agent, networking, bootstrap status |
-| Docker pull denied | Repository is public; SHA tag exists; registry availability/rate limits |
+| Docker pull denied | Instance ECR permissions, temporary login, SHA tag existence and registry reachability |
 | Log driver cannot initialize | Log group exists; instance role permits log stream creation and writes |
 | Caddy certificate fails | DNS A/AAAA records, ports 80/443, ACME rate limits and Caddy logs |
 | Version mismatch | Expected image tag, running container image, stale/replaced release |
@@ -50,7 +50,7 @@ Inspect Actions → Release → SSM command ID, then AWS Systems Manager Run Com
 
 Keep a full SHA from a previously successful release. Actions → Release → Run workflow → main → enter that SHA into `release_sha`.
 
-The workflow downloads the retained S3 bundle and redeploys the previous image. It does not rebuild the old commit. Missing archives or deleted registry images prevent this path.
+The workflow downloads the retained S3 bundle and redeploys the previous image. It does not rebuild the old commit. Missing archives or deleted ECR images prevent this path.
 
 Verify the public `/version` and run the Go smoke tool with the old SHA. Record how long recovery took. Do not label it zero downtime.
 
@@ -70,7 +70,7 @@ docker compose --project-name go-aws-platform --env-file /etc/go-aws-platform/ho
   --env-file "$release/release.env" -f "$release/compose.aws.yaml" up -d --wait
 ```
 
-Check HTTPS health and alarm recovery. Confirm SNS delivery if configured. This tests local app monitoring, not continuous public availability monitoring.
+Check HTTPS health and alarm recovery. Confirm the SNS alarm message reached the SQS queue using `aws sqs receive-message` with the Terraform `alert_queue_url` output; inspect messages privately. Confirm email only if you explicitly configured and confirmed a subscription. This tests local app monitoring, not continuous public availability monitoring.
 
 ## Drill 2: Reject a bad configuration
 

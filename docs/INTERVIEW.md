@@ -40,7 +40,7 @@ Compose can wait for health during deployment and gate startup dependencies, but
 GitHub requests an OIDC token for the job. AWS checks audience and subject against the role trust policy and returns short-lived credentials. The subject is bound to the production environment, whose deployment branches I restrict to main.
 
 **Are there no secrets at all?**
-There is no stored long-lived AWS key in GitHub. Docker Hub publishing still uses a separate token. AWS credentials exist temporarily at runtime, and Caddy stores private certificate material in its data volume.
+There is no stored long-lived AWS key or registry password in GitHub. GitHub gets AWS credentials through OIDC; EC2 uses its instance role. Temporary AWS and ECR credentials exist at runtime, and Caddy stores private certificate material in its data volume.
 
 **Why SSM instead of SSH?**
 It allows administration through an outbound agent connection with IAM controls, without opening port 22 or distributing an SSH private key. Run Command is powerful because it executes as root, so I restrict its target and protect the release workflow.
@@ -49,13 +49,13 @@ It allows administration through an outbound agent connection with IAM controls,
 The binary embeds the full commit SHA. Deployment checks `/version` locally and over HTTPS, then a Go smoke tool independently validates health, readiness and the expected version.
 
 **Are SHA image tags immutable?**
-They are a naming convention here; an authorized registry writer could overwrite them. Restricting publishing permissions reduces that risk. Digest-pinned deployment is a future hardening step.
+Yes, this ECR repository enforces immutable tags. Rerunning a commit reuses its existing image and scans it instead of replacing that tag. An administrator could still change repository settings, so IAM restrictions remain important.
 
 **What happens on deployment failure?**
 The script collects diagnostics and attempts to restore the previous successful Compose release. First deployment has no rollback target. Recovery can also fail, so I inspect logs and verify the served version. External smoke-test failure after SSM success does not independently trigger another rollback.
 
 **What monitoring exists?**
-JSON application and access logs, a one-minute local app health metric, instance status checks, CPU alarms and optional confirmed SNS email. It does not continuously test public DNS or TLS. That requires an external probe.
+JSON application and access logs, a one-minute local app health metric, instance status checks, CPU alarms and SNS notifications delivered to an encrypted SQS queue. Optional email delivery requires confirmation. It does not continuously test public DNS or TLS. That requires an external probe.
 
 **Is it highly available?**
 No. One EC2 host is a single point of failure, and container replacement can interrupt requests. Multiple targets behind a load balancer, external persistent data and multi-AZ design would be needed for stronger availability.

@@ -17,7 +17,6 @@ variables {
   domain                   = "app.example.com"
   acme_email               = "riya@example.com"
   github_repository        = "rhysch/go-aws-platform"
-  image_repository         = "docker.io/example/go-aws-platform"
   github_oidc_provider_arn = "arn:aws:iam::123456789012:oidc-provider/token.actions.githubusercontent.com"
 }
 run "platform_security_and_bootstrap" {

@@ -4,7 +4,7 @@
 
 **Request path:** DNS resolves your domain to an Elastic IP. AWS routes the request to the EC2 instance. Its security group allows TCP 443. Docker forwards that traffic to Caddy. Caddy terminates TLS and reverse-proxies to `api:8080` on the private Compose network. The Go handler returns a response through Caddy.
 
-**Delivery path:** A main-branch commit is tested and built. GitHub publishes its image and deployment bundle. GitHub's temporary AWS role calls Systems Manager. The SSM agent on EC2 downloads the bundle using the instance role, validates its checksum, and runs the release script. The script pulls containers, starts the stack, checks versions and records success.
+**Delivery path:** A main-branch commit is tested and built. GitHub publishes its image to private Amazon ECR and its deployment bundle to S3. GitHub's temporary AWS role calls Systems Manager. The SSM agent on EC2 downloads the bundle using the instance role, validates its checksum, and runs the release script. The script pulls containers, starts the stack, checks versions and records success.
 
 ## Go code
 
@@ -42,6 +42,8 @@ A **VPC** is your AWS network boundary. A **subnet** is an address range within 
 
 A **security group** is a stateful network filter. Inbound access is limited to 80 and 443. Outbound access supports package installation, image pulls, SSM, S3 and CloudWatch. Stateful means return traffic for an allowed connection is permitted.
 
+If no domain is supplied, a temporary sslip.io hostname is derived from the Elastic IP. It is convenient for a demo but depends on a third-party public DNS service; use your own domain for long-term hosting.
+
 An **Elastic IP** provides a stable public address so routine stop/start operations do not require DNS changes. Public IPv4 addresses are billable. Terraform manages the EIP association when the instance is replaced.
 
 There is no load balancer, NAT gateway, private subnet tier or multi-AZ deployment. Those can be appropriate later, but would change cost and complexity.
@@ -60,11 +62,11 @@ Cloud-init installs Docker and AWS CLI, ensures SSM is active, writes non-secret
 
 ## IAM, OIDC and SSM
 
-The **instance role** lets EC2 read release bundles, send logs, publish health metrics and communicate with SSM. Applications do not need AWS permissions. IMDSv2 is required and the metadata hop limit is one; the host can retrieve credentials while typical bridged containers cannot.
+The **instance role** lets EC2 read release bundles, pull from this private ECR repository, send logs, publish health metrics and communicate with SSM. The release script obtains an expiring ECR token and keeps its Docker login configuration in a temporary root-only directory, removed on exit. Applications do not need AWS permissions. IMDSv2 is required and the metadata hop limit is one; the host can retrieve credentials while typical bridged containers cannot.
 
-The **GitHub deployment role** can upload release bundles and send the permitted SSM command to this instance. It cannot create infrastructure or access Terraform state. Its trust policy accepts the specific repository and `production` environment, with audience `sts.amazonaws.com`.
+The **GitHub deployment role** can publish/pull this ECR repository, upload release bundles and send the permitted SSM command to this instance. It cannot create infrastructure or access Terraform state. Its trust policy accepts the specific repository and `production` environment, with audience `sts.amazonaws.com`.
 
-The GitHub job requests an OIDC identity token; AWS validates it and issues short-lived credentials. No long-lived AWS access key is stored in GitHub. Docker Hub still requires its separate scoped publishing token.
+The GitHub job requests an OIDC identity token; AWS validates it and issues short-lived credentials. No long-lived AWS access key is stored in GitHub. ECR publishing also uses this temporary AWS role; no separate registry publishing token is required.
 
 Because the OIDC subject names an environment, branch restrictions belong in the GitHub environment settings. Configure `production` to permit only main; the workflow also checks main. Protect main and require CI checks.
 
@@ -72,7 +74,7 @@ SSM's agent makes outbound connections, so there is no inbound SSH port or SSH p
 
 ## Release and recovery
 
-Every release uses a full commit-SHA image tag and an S3 archive under `releases/SHA/`. Retain the archive and image for rollback. A shell lock prevents concurrent mutation on the server; GitHub concurrency prevents simultaneous production jobs in this workflow.
+Every release uses an ECR-enforced immutable full commit-SHA image tag and an S3 archive under `releases/SHA/`. Retain the archive and image for rollback. A shell lock prevents concurrent mutation on the server; GitHub concurrency prevents simultaneous production jobs in this workflow.
 
 `deploy.sh` validates Caddy configuration, waits for containers, checks the local and public version, then atomically updates the `current` symlink. On failure, it attempts to run the last successful release again. Image pulls, registry outages and a failed host can also prevent rollback.
 
@@ -86,7 +88,7 @@ Docker's `awslogs` driver sends application and Caddy stdout/stderr to pre-creat
 
 A systemd timer checks the loopback health endpoint every minute and publishes `AppHealthy` (1 or 0). Three unhealthy or missing periods trigger an alarm. This detects local application failure or stopped reporting, but cannot prove public DNS, Caddy TLS or external network availability. The release smoke test checks the public path at deployment time; continuous external probing is a future extension.
 
-EC2 status-check and CPU alarms cover host health and sustained load. SNS can send notifications after the recipient confirms the subscription. No default EC2 memory metric is claimed. CPU credits on burstable instances also need attention for sustained workloads.
+EC2 status-check and CPU alarms cover host health and sustained load. SNS delivers alarms to an encrypted SQS queue, which makes notification delivery verifiable without email. An optional email subscription requires the recipient to confirm it. No default EC2 memory metric is claimed. CPU credits on burstable instances also need attention for sustained workloads.
 
 ## Persistence and rebuilding
 
